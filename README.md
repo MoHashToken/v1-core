@@ -1,2 +1,2 @@
-# v1
+# MoHash v1
 Core smart contracts of MoHash Protocol. v1.
