@@ -23,8 +23,9 @@ contract RWADetails is Ownable, RWAManager {
     );
     event RWAUnitDetailsUpdated(
         uint256 indexed rWAUnitId,
-        uint32 unitPrice,
-        uint256 priceUpdateDate
+        uint32 indexed unitPrice,
+        uint32 indexed priceUpdateDate,
+        string portfolioDetailsLink
     );
     event RWAUnitSchemeDocumentLinkUpdated(
         uint256 indexed rWAUnitId,
@@ -47,7 +48,7 @@ contract RWADetails is Ownable, RWAManager {
 
     struct RWAUnit {
         uint32 unitPrice; // stores in paise, so 2 decimals
-        uint256 priceUpdateDate;
+        uint32 priceUpdateDate;
         bytes32 fiatCurrency;
         string name;
         string schemeDocumentLink;
@@ -65,6 +66,9 @@ contract RWADetails is Ownable, RWAManager {
 
     /// @dev Currency Oracle Address contract associated with RWA unit
     address private currencyOracleAddress;
+
+    /// @notice Allows adding an address with RWA Manager role
+    /// @param _account address to be granted RWA Manager role
 
     function addRWAManager(address _account) external onlyOwner {
         _addRWAManager(_account);
@@ -93,7 +97,7 @@ contract RWADetails is Ownable, RWAManager {
         string memory _schemeDocumentLink,
         bytes32 _fiatCurrency,
         uint32 _unitPrice,
-        uint256 _priceUpdateDate
+        uint32 _priceUpdateDate
     ) external onlyRWAManager returns (uint256 id) {
         require(
             (bytes(_name).length) > 0 &&
@@ -205,7 +209,7 @@ contract RWADetails is Ownable, RWAManager {
         uint256 _id,
         string memory _portfolioDetailsLink,
         uint32 _unitPrice,
-        uint256 _priceUpdateDate
+        uint32 _priceUpdateDate
     ) external onlyRWAManager {
         require(_unitPrice > 0, "ECC1");
         require((bytes(_portfolioDetailsLink)).length > 0, "ECC2");
@@ -214,7 +218,12 @@ contract RWADetails is Ownable, RWAManager {
         rWAUnit.unitPrice = _unitPrice;
         rWAUnit.portfolioDetailsLink = _portfolioDetailsLink;
         rWAUnit.priceUpdateDate = _priceUpdateDate;
-        emit RWAUnitDetailsUpdated(_id, _unitPrice, _priceUpdateDate);
+        emit RWAUnitDetailsUpdated(
+            _id,
+            _unitPrice,
+            _priceUpdateDate,
+            _portfolioDetailsLink
+        );
     }
 
     /// @notice Allows setting currencyOracleAddress
@@ -243,7 +252,7 @@ contract RWADetails is Ownable, RWAManager {
     /// @param _inCurrency currency in which assetValue is to be returned
     /// @return assetValue real world asset value for the token in the requested currency, shifted by 6 decimals
 
-    function getRWAValueByTokenId(uint16 _tokenId, bytes32 _inCurrency)
+    function getRWAValueByTokenId(uint16 _tokenId, bytes32 _inCurrency, uint32 _date)
         external
         view
         returns (uint128 assetValue)
@@ -251,6 +260,7 @@ contract RWADetails is Ownable, RWAManager {
         CurrencyOracle currencyOrace = CurrencyOracle(currencyOracleAddress);
         for (uint256 i = 0; i < rWAUnitId; i++) {
             RWAUnit storage rWAUnit = rWAUnits[i];
+            require(rWAUnit.priceUpdateDate == _date, "ECC3");
             (uint64 convRate, uint8 decimalsVal) = currencyOrace
                 .getFeedLatestPriceAndDecimals(
                     rWAUnit.fiatCurrency,
@@ -293,7 +303,7 @@ contract RWADetails is Ownable, RWAManager {
             string memory portfolioDetailsLink,
             bytes32 fiatCurrency,
             uint32 unitPrice,
-            uint256 priceUpdateDate,
+            uint32 priceUpdateDate,
             uint16[] memory tokenIds,
             uint64[] memory tokenUnits,
             bool[] memory tokenIdAssociated

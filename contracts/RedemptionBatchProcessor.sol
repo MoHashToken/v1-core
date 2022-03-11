@@ -38,13 +38,13 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
     bytes32 private assignedRefundCoin;
 
     /// @dev Assigned fiat currency for the token
-    bytes32 private fiatCurrency = "USD";
+    bytes32 public fiatCurrency = "USD";
 
     /// @dev Difference between the decimals of MoToken and assigned refund coin
     uint8 private decimalsDiff;
 
     /// @dev Currency Oracle Address contract associated with the batch processor
-    address private currencyOracleAddress;
+    address public currencyOracleAddress;
 
     event BatchCreated(uint256 indexed id, address indexed creator);
     event RedeemRequestCreated(address indexed user, uint256 indexed tokens);
@@ -92,13 +92,6 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         emit CurrencyOracleAddressSet(currencyOracleAddress);
     }
 
-    /// @notice Allows getting currencyOracleAddress
-    /// @return address returns currencyOracleAddress
-
-    function getCurrencyOracleAddress() public view returns (address) {
-        return currencyOracleAddress;
-    }
-
     /// @notice Allows setting fiatCurrecy
     /// @param _fiatCurrency fiatCureency
 
@@ -107,12 +100,8 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         emit FiatCurrencySet(fiatCurrency);
     }
 
-    /// @notice Allows getting fiatCurrency associated with tokes
-    /// @return bytes32 returns fiatCurrency
-
-    function getFiatCurrency() external view returns (bytes32) {
-        return fiatCurrency;
-    }
+    /// @notice Allows adding an address with RWA Manager role
+    /// @param _account address to be granted RWA Manager role
 
     function addRWAManager(address _account) external onlyOwner {
         _addRWAManager(_account);

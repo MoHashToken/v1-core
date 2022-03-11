@@ -12,12 +12,16 @@ import "./access/RWAManager.sol";
 /// @dev Extending Ownable and RWAManager for role implementation and StableCoin for stable coin related functionalities
 
 contract MoTokenManager is StableCoin, Ownable, RWAManager {
+    /// @dev RWA Details contract address which stores real world asset details
     address rWADetails;
+
+    /// @dev Limits the total supply of the token.
+    uint256 tokenSupplyLimit;
 
     /** @notice This struct stores all the properties associated with the token
      *  id - MoToken id
      *  nav - NAV for the token
-     *  USDStash - USD amount which is in transmission between the stable coin pipe and the RWA bank account
+     *  pipeFiatStash - Fiat amount which is in transmission between the stable coin pipe and the RWA bank account
      *  totalAssetValue - Summation of all the assets owned by the RWA fund that is associated with the MoToken
      */
 
@@ -25,16 +29,18 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         uint16 id;
         uint32 nav; // 6 decimal shifted
         uint64 pipeFiatStash; // 6 decimal shifted
+        uint32 stashUpdateDate;
         uint128 totalAssetValue; // 6 decimal shifted
     }
 
-    tokenDetails private _tokenDetails = tokenDetails(0, 0, 0, 0);
+    tokenDetails private _tokenDetails = tokenDetails(0, 0, 0, 0, 0);
 
     event Purchase(address indexed user, uint256 indexed tokens);
     event RWADetailsSet(address indexed _address);
     event FiatCurrencySet(bytes32 indexed _currency);
-    event FiatCredited(uint64 indexed _amount);
-    event FiatDebited(uint64 indexed _amount);
+    event FiatCredited(uint64 indexed _amount, uint32 indexed _date);
+    event FiatDebited(uint64 indexed _amount, uint32 indexed _date);
+    event NAVUpdated(uint32 indexed _nav, uint32 indexed _date);
 
     /// @notice Initializes basic properties associated with the token
     /// @param _id MoToken Id
@@ -52,6 +58,7 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         token = _token;
         rWADetails = _rWADetails;
         _tokenDetails.nav = 1000000;
+        tokenSupplyLimit = 10**24;
     }
 
     /// @notice Allows adding an address with RWA Manager role
@@ -108,24 +115,63 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         return currencyOracleAddress;
     }
 
-    /// @notice Allows setting fiatCurrecy associated with tokes
-    /// @param _fiatCurrency fiatCureency
+    /// @notice Allows setting fiatCurrecy associated with tokens
+    /// @param _fiatCurrency fiatCurrency
 
     function setFiatCurrency(bytes32 _fiatCurrency) external onlyOwner {
         fiatCurrency = _fiatCurrency;
         emit FiatCurrencySet(fiatCurrency);
     }
 
-    /// @notice Allows getting fiatCurrency associated with tokes
+    /// @notice Allows getting fiatCurrency associated with tokens
     /// @return bytes32 returns fiatCurrency
 
     function getFiatCurrency() external view returns (bytes32) {
         return fiatCurrency;
     }
 
-    function purchase(uint256 _depositAmount, bytes32 _depositCurrency)
+    /// @notice Allows setting tokenSupplyLimit associated with tokens
+    /// @param _tokenSupplyLimit limit to be set for the token supply
+
+    function setTokenSupplyLimit(uint256 _tokenSupplyLimit)
+        external
+        onlyRWAManager
+    {
+        tokenSupplyLimit = _tokenSupplyLimit;
+    }
+
+    /// @notice Gets tokenSupplyLimit associated with tokens
+    /// @return uint256 returns tokenSupplyLimit
+
+    function getTokenSupplyLimit() external view returns (uint256) {
+        return tokenSupplyLimit;
+    }
+
+    /// @notice This function is called by the purchaser of MoH tokens. The protocol transfers _depositCurrency 
+	/// from the purchaser and mints and transfers MoH token to the purchaser
+	/// @dev _tokenDetails.nav has the NAV (in USD) of the MoH token. The number of MoH tokens to mint = _depositAmount (in USD) / NAV
+	/// @param _depositAmount is the amount in USD (shifted by 6 decimal places) that the purchaser wants to send to buy MoH tokens
+	/// @param _depositCurrency is the token that purchaser wants to send the amount in (ex: USDC, USDT etc)
+
+	function purchase(uint256 _depositAmount, bytes32 _depositCurrency)
         external
     {
+        CurrencyOracle currencyOracle = CurrencyOracle(currencyOracleAddress);
+        (uint64 stableToFiatConvRate, uint8 decimalsVal) = currencyOracle
+            .getFeedLatestPriceAndDecimals(_depositCurrency, fiatCurrency);
+        uint64 navValueInStableCoins = uint64(
+            (_tokenDetails.nav * (10**decimalsVal)) / stableToFiatConvRate
+        );
+        uint256 tokensToMint = (_depositAmount *
+            1000000 *
+            10**(getDecimalsDiff(_depositCurrency))) / navValueInStableCoins;
+
+        MoToken moToken = MoToken(token);
+        require(
+            tokenSupplyLimit + moToken.balanceOf(token) >
+                moToken.totalSupply() + tokensToMint,
+            "LE"
+        );
         require(
             initiateTransferFrom({
                 _from: msg.sender,
@@ -135,37 +181,29 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
             "PF"
         );
 
-        MoToken moToken = MoToken(token);
+        moToken.mint(msg.sender, tokensToMint);
 
-        CurrencyOracle currencyOracle = CurrencyOracle(currencyOracleAddress);
-        (uint64 stableToFiatConvRate, uint8 decimalsVal) = currencyOracle
-            .getFeedLatestPriceAndDecimals(_depositCurrency, fiatCurrency);
-        uint64 navValueInStableCoins = uint64(
-            (_tokenDetails.nav * (10**decimalsVal)) / stableToFiatConvRate
-        );
-        moToken.mint(
-            msg.sender,
-            (_depositAmount *
-                1000000 *
-                10**(getDecimalsDiff(_depositCurrency))) / navValueInStableCoins
-        );
         emit Purchase(msg.sender, moToken.balanceOf(msg.sender));
     }
 
     /// @notice The function allows RWA manger to provide the increase in pipe fiat balances against the MoH token
     /// @param _amount the amount by which RWA manager is increasing the pipeFiatStash of the MoH token
+    /// @param _date RWA manager is crediting pipe fiat for this date
 
-    function creditPipeFiat(uint64 _amount) external onlyRWAManager {
+    function creditPipeFiat(uint64 _amount, uint32 _date) external onlyRWAManager {
         _tokenDetails.pipeFiatStash += _amount;
-        emit FiatCredited(_tokenDetails.pipeFiatStash);
+        _tokenDetails.stashUpdateDate = _date;
+        emit FiatCredited(_tokenDetails.pipeFiatStash, _date);
     }
 
     /// @notice The function allows RWA manger to decrease pipe fiat balances against the MoH token
     /// @param _amount the amount by which RWA manager is decreasing the pipeFiatStash of the MoH token
+    /// @param _date RWA manager is debiting pipe fiat for this date
 
-    function debitPipeFiat(uint64 _amount) external onlyRWAManager {
+    function debitPipeFiat(uint64 _amount, uint32 _date) external onlyRWAManager {
         _tokenDetails.pipeFiatStash -= _amount;
-        emit FiatDebited(_tokenDetails.pipeFiatStash);
+        _tokenDetails.stashUpdateDate = _date;
+        emit FiatDebited(_tokenDetails.pipeFiatStash, _date);
     }
 
     /// @notice Allows viewing of pipeFiatStash ([pipe] fiat balance against a MoH token)
@@ -199,7 +237,6 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         require(totalSupply > 0, "ECT1");
         _tokenDetails.totalAssetValue = getTotalRWAssetValue(); // 6 decimals shifted
 
-        // change to pipe fiat
         uint256 totalValue = totalBalanceInFiat() +
             _tokenDetails.pipeFiatStash +
             _tokenDetails.totalAssetValue; // 6 decimals shifted
@@ -207,6 +244,8 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         _tokenDetails.nav = uint32(
             (totalValue * (10**(MoToken(token).decimals()))) / totalSupply
         ); //nav should be 6 decimals shifted
+
+        emit NAVUpdated(_tokenDetails.nav, _tokenDetails.stashUpdateDate);
     }
 
     /// @notice Gets the summation of all the assets owned by the RWA fund that is associated with the MoToken in fiatCurrency
@@ -220,7 +259,8 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         RWADetails rWADetailsInstance = RWADetails(rWADetails);
         totalRWAssetValue = rWADetailsInstance.getRWAValueByTokenId(
             _tokenDetails.id,
-            fiatCurrency
+            fiatCurrency,
+            _tokenDetails.stashUpdateDate
         ); // 6 decimals shifted in fiatCurrency
     }
 

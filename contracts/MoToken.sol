@@ -40,7 +40,8 @@ contract MoToken is ERC20PresetMinterPauser {
         returns (bool)
     {
         require(hasRole(MINTER_ROLE, msg.sender), "NM");
-        return (transfer(_address, _tokens));
+        IERC20Basic ier = IERC20Basic(address(this));
+        return (ier.transfer(_address, _tokens));
     }
 
     /// @notice Transfers stablecoins from self to an external address
