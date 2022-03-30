@@ -59,7 +59,7 @@ contract RWADetails is Ownable, RWAManager {
     }
 
     /// @dev unique identifier for the rwa unit
-    uint256 private rWAUnitId = 0;
+    uint256 public rWAUnitId;
 
     /// @dev mapping between the id and the struct
     mapping(uint256 => RWAUnit) private rWAUnits;
@@ -252,11 +252,11 @@ contract RWADetails is Ownable, RWAManager {
     /// @param _inCurrency currency in which assetValue is to be returned
     /// @return assetValue real world asset value for the token in the requested currency, shifted by 6 decimals
 
-    function getRWAValueByTokenId(uint16 _tokenId, bytes32 _inCurrency, uint32 _date)
-        external
-        view
-        returns (uint128 assetValue)
-    {
+    function getRWAValueByTokenId(
+        uint16 _tokenId,
+        bytes32 _inCurrency,
+        uint32 _date
+    ) external view returns (uint128 assetValue) {
         CurrencyOracle currencyOrace = CurrencyOracle(currencyOracleAddress);
         for (uint256 i = 0; i < rWAUnitId; i++) {
             RWAUnit storage rWAUnit = rWAUnits[i];

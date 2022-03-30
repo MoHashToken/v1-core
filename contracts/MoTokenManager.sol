@@ -41,6 +41,7 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
     event FiatCredited(uint64 indexed _amount, uint32 indexed _date);
     event FiatDebited(uint64 indexed _amount, uint32 indexed _date);
     event NAVUpdated(uint32 indexed _nav, uint32 indexed _date);
+    event TokenSupplyLimitSet(uint256 _tokenSupplyLimit);
 
     /// @notice Initializes basic properties associated with the token
     /// @param _id MoToken Id
@@ -57,7 +58,7 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         _tokenDetails.id = _id;
         token = _token;
         rWADetails = _rWADetails;
-        _tokenDetails.nav = 1000000;
+        _tokenDetails.nav = 10**6;
         tokenSupplyLimit = 10**24;
     }
 
@@ -138,6 +139,7 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         onlyRWAManager
     {
         tokenSupplyLimit = _tokenSupplyLimit;
+        emit TokenSupplyLimitSet(tokenSupplyLimit);
     }
 
     /// @notice Gets tokenSupplyLimit associated with tokens
@@ -147,24 +149,37 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
         return tokenSupplyLimit;
     }
 
-    /// @notice This function is called by the purchaser of MoH tokens. The protocol transfers _depositCurrency 
-	/// from the purchaser and mints and transfers MoH token to the purchaser
-	/// @dev _tokenDetails.nav has the NAV (in USD) of the MoH token. The number of MoH tokens to mint = _depositAmount (in USD) / NAV
-	/// @param _depositAmount is the amount in USD (shifted by 6 decimal places) that the purchaser wants to send to buy MoH tokens
-	/// @param _depositCurrency is the token that purchaser wants to send the amount in (ex: USDC, USDT etc)
+    /// @notice Gets tokenId for the token
+    /// @return uint16 returns token id
 
-	function purchase(uint256 _depositAmount, bytes32 _depositCurrency)
+    function getTokenId() external view returns (uint16) {
+        return _tokenDetails.id;
+    }
+
+    /// @notice Gets stashUpdateDate for the token
+    /// @return uint32 returns stashUpdateDate
+
+    function getStashUpdateDate() external view returns (uint32) {
+        return _tokenDetails.stashUpdateDate;
+    }
+
+    /// @notice This function is called by the purchaser of MoH tokens. The protocol transfers _depositCurrency
+    /// from the purchaser and mints and transfers MoH token to the purchaser
+    /// @dev _tokenDetails.nav has the NAV (in USD) of the MoH token. The number of MoH tokens to mint = _depositAmount (in USD) / NAV
+    /// @param _depositAmount is the amount in USD (shifted by 6 decimal places) that the purchaser wants to send to buy MoH tokens
+    /// @param _depositCurrency is the token that purchaser wants to send the amount in (ex: USDC, USDT etc)
+
+    function purchase(uint256 _depositAmount, bytes32 _depositCurrency)
         external
     {
         CurrencyOracle currencyOracle = CurrencyOracle(currencyOracleAddress);
         (uint64 stableToFiatConvRate, uint8 decimalsVal) = currencyOracle
             .getFeedLatestPriceAndDecimals(_depositCurrency, fiatCurrency);
-        uint64 navValueInStableCoins = uint64(
-            (_tokenDetails.nav * (10**decimalsVal)) / stableToFiatConvRate
-        );
+
         uint256 tokensToMint = (_depositAmount *
-            1000000 *
-            10**(getDecimalsDiff(_depositCurrency))) / navValueInStableCoins;
+            stableToFiatConvRate *
+            10**(6 + getDecimalsDiff(_depositCurrency) - decimalsVal)) /
+            _tokenDetails.nav; // Decimal correction:: nav: 6 decimal shifted. amount: mo token decimals - stable currency decimals.
 
         MoToken moToken = MoToken(token);
         require(
@@ -190,7 +205,10 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
     /// @param _amount the amount by which RWA manager is increasing the pipeFiatStash of the MoH token
     /// @param _date RWA manager is crediting pipe fiat for this date
 
-    function creditPipeFiat(uint64 _amount, uint32 _date) external onlyRWAManager {
+    function creditPipeFiat(uint64 _amount, uint32 _date)
+        external
+        onlyRWAManager
+    {
         _tokenDetails.pipeFiatStash += _amount;
         _tokenDetails.stashUpdateDate = _date;
         emit FiatCredited(_tokenDetails.pipeFiatStash, _date);
@@ -200,7 +218,10 @@ contract MoTokenManager is StableCoin, Ownable, RWAManager {
     /// @param _amount the amount by which RWA manager is decreasing the pipeFiatStash of the MoH token
     /// @param _date RWA manager is debiting pipe fiat for this date
 
-    function debitPipeFiat(uint64 _amount, uint32 _date) external onlyRWAManager {
+    function debitPipeFiat(uint64 _amount, uint32 _date)
+        external
+        onlyRWAManager
+    {
         _tokenDetails.pipeFiatStash -= _amount;
         _tokenDetails.stashUpdateDate = _date;
         emit FiatDebited(_tokenDetails.pipeFiatStash, _date);

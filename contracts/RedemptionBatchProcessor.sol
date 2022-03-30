@@ -158,7 +158,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
             allBatches[batchTail - 1].userList.push(msg.sender);
         }
 
-        require(token.receiveTokens(msg.sender, _tokens));
+        require(token.receiveTokens(msg.sender, _tokens), "RTOF");
         allBatches[batchTail - 1].requests[msg.sender].requestTokens = _tokens;
         allBatches[batchTail - 1]
             .requests[msg.sender]
@@ -185,7 +185,8 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
             token.transferTokens(
                 msg.sender,
                 allBatches[_id].requests[msg.sender].requestTokensPending
-            )
+            ),
+            "TTOF"
         );
 
         allBatches[_id].batchTokensPending =
@@ -198,7 +199,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
 
     /// @notice Fulfill the redeem requests in the given batch
     /// @param _id Batch Id
-    /// @param _amount The stablecoin amount which is used to issue refunds
+    /// @param _amount The Fiat amount which is used to issue refunds
 
     function fulfillBatch(uint256 _id, uint256 _amount)
         external
@@ -208,18 +209,16 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
             closeBatches();
             return;
         }
+        require(_id >= batchHead, "BD");
 
         MoTokenManager manager = MoTokenManager(tokenManager);
         MoToken token = MoToken(manager.getTokenAddress());
 
         uint256 nav = uint256(manager.getNAV());
-        uint256 refundTokens = (_amount * 10**6) / nav;
+        uint256 refundTokens = (_amount * 10**(6 + decimalsDiff)) / nav;
 
-        require(
-            _id >= batchHead &&
-                allBatches[_id].batchTokensPending >= refundTokens,
-            "BD"
-        );
+        if (refundTokens > allBatches[_id].batchTokensPending)
+            refundTokens = allBatches[_id].batchTokensPending;
 
         CurrencyOracle currencyOracle = CurrencyOracle(currencyOracleAddress);
         (uint64 stableToFiatConvRate, uint8 decimalsVal) = currencyOracle
@@ -252,7 +251,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
                 refundAmount =
                     (refundAmount * (10**decimalsVal)) /
                     stableToFiatConvRate;
-                require(_transferStableCoins(user, refundAmount));
+                require(_transferStableCoins(user, refundAmount), "TSOF");
                 token.burn(
                     allBatches[_id].requests[user].requestTokensPending,
                     manager.getTokenAddress()
@@ -283,7 +282,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
                     (refundAmount * (10**decimalsVal)) /
                     stableToFiatConvRate;
 
-                require(_transferStableCoins(user, refundAmount));
+                require(_transferStableCoins(user, refundAmount), "TSOF");
                 token.burn(userRefund, manager.getTokenAddress());
                 allBatches[_id].requests[user].requestTokensPending =
                     allBatches[_id].requests[user].requestTokensPending -

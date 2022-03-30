@@ -45,7 +45,10 @@ abstract contract StableCoin {
         address _contractAddress,
         address _pipeAddress
     ) internal {
-        require(_symbol.length > 0 && contractAddressOf[_symbol] == address(0));
+        require(
+            _symbol.length > 0 && contractAddressOf[_symbol] == address(0),
+            "SCE"
+        );
         contractAddressOf[_symbol] = _contractAddress;
         stableCoinsAssociated.push(_symbol);
         pipeAddressOf[_symbol] = _pipeAddress;
@@ -56,7 +59,7 @@ abstract contract StableCoin {
     /// @param _symbol Stablecoin symbol
 
     function _deleteStableCoin(bytes32 _symbol) internal {
-        require(contractAddressOf[_symbol] != address(0));
+        require(contractAddressOf[_symbol] != address(0), "NC");
         delete contractAddressOf[_symbol];
         delete pipeAddressOf[_symbol];
         for (uint256 i = 0; i < stableCoinsAssociated.length; i++) {
@@ -85,6 +88,17 @@ abstract contract StableCoin {
 
     function getPipeAddress(bytes32 _symbol) public view returns (address) {
         return pipeAddressOf[_symbol];
+    }
+
+    /// @notice Getter for Stable coins associated
+    /// @return bytes32[] Stable coins accepted by the token
+
+    function getStableCoinsAssociated()
+        external
+        view
+        returns (bytes32[] memory)
+    {
+        return stableCoinsAssociated;
     }
 
     /// @notice Get balance of the stablecoins in the wallet address
