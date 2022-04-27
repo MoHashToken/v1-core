@@ -8,14 +8,14 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /// @notice This handles all the operations related currency exchange
 
 contract CurrencyOracle is Ownable {
-    event feeedAddressSet(
+    event feedAddressSet(
         address indexed feedAddress,
         bytes32 indexed fromCurrency,
         bytes32 indexed toCurrency
     );
 
     /// @dev mapping b/w encoded bytes32 of currecies and chainLink Date Feed proxy Address
-    mapping(bytes32 => address) private dataFeedAddressMapper;
+    mapping(bytes32 => address) public dataFeedAddressMapper;
 
     /// @notice Allows adding mapping b/w encoded bytes32 of currecies and chainLink Date Feed proxy Address
     /// @param _fromCurrency _fromCurrency
@@ -30,7 +30,7 @@ contract CurrencyOracle is Ownable {
         dataFeedAddressMapper[
             keccak256(abi.encodePacked(_fromCurrency, _toCurrency))
         ] = _feedAddress;
-        emit feeedAddressSet(_feedAddress, _fromCurrency, _toCurrency);
+        emit feedAddressSet(_feedAddress, _fromCurrency, _toCurrency);
     }
 
     /// @notice to get latest price and decimals

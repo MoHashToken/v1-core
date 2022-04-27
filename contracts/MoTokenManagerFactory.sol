@@ -12,15 +12,16 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract MoTokenManagerFactory is Ownable {
     /// @dev Mapping points to the token manager of a given token's symbol
-    mapping(bytes32 => address) private symbolToTokenManager;
+    mapping(bytes32 => address) public symbolToTokenManager;
+
 
     /// @dev Index used while creating MoTokenManager
-    uint16 private tokenId;
+    uint16 public tokenId;
 
     event MoTokenManagerAdded(
-        address indexed _from,
-        bytes32 indexed _tokenSymbol,
-        address indexed _tokenManager
+        address indexed from,
+        bytes32 indexed tokenSymbol,
+        address indexed tokenManager
     );
 
     /// @notice Adds MoTokenManager for a given MoToken
@@ -47,17 +48,5 @@ contract MoTokenManagerFactory is Ownable {
 
         symbolToTokenManager[tokenBytes] = _tokenManager;
         emit MoTokenManagerAdded(msg.sender, tokenBytes, _tokenManager);
-    }
-
-    /// @notice Getter for MoTokenManager
-    /// @param _tokenSymbol The input token symbol
-    /// @return address The MoTokenManager associated with the token symbol
-
-    function getTokenManagerAddress(bytes32 _tokenSymbol)
-        external
-        view
-        returns (address)
-    {
-        return symbolToTokenManager[_tokenSymbol];
     }
 }

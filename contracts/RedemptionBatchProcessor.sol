@@ -2,11 +2,12 @@
 pragma solidity 0.8.2;
 import "./MoTokenManager.sol";
 import "./CurrencyOracle.sol";
+import "./access/AccessControlManager.sol";
 
 /// @title Token Redemption Batch Processor
 /// @notice This contract handles the token redemption process
 
-contract RedemptionBatchProcessor is Ownable, RWAManager {
+contract RedemptionBatchProcessor is Ownable {
     /// @notice This struct holds the request details raised by a user
 
     struct RedemptionRequest {
@@ -26,25 +27,28 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
     Batch[] private allBatches;
 
     /// @dev Index of the batches which are yet to be fulfilled
-    uint256 private batchHead;
+    uint256 public batchHead;
 
     /// @dev Index beyond the latest batch
-    uint256 private batchTail;
+    uint256 public batchTail;
 
     /// @dev Token manager contract associated with the batch processor
-    address private tokenManager;
+    address public tokenManager;
 
     /// @dev The refund is always issued in a fixed assigned stablecoin
-    bytes32 private assignedRefundCoin;
+    bytes32 public assignedRefundCoin;
 
     /// @dev Assigned fiat currency for the token
     bytes32 public fiatCurrency = "USD";
 
     /// @dev Difference between the decimals of MoToken and assigned refund coin
-    uint8 private decimalsDiff;
+    uint8 public decimalsDiff;
 
     /// @dev Currency Oracle Address contract associated with the batch processor
     address public currencyOracleAddress;
+
+    /// @dev Implements RWA manager and whitelist access
+    address public accessControlManagerAddress;
 
     event BatchCreated(uint256 indexed id, address indexed creator);
     event RedeemRequestCreated(address indexed user, uint256 indexed tokens);
@@ -55,8 +59,8 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         bool indexed closed
     );
     event CurrencyOracleAddressSet(address indexed currencyOracleAddress);
-    event RefundCoinSet(bytes32 indexed _coin);
-    event FiatCurrencySet(bytes32 indexed _currency);
+    event RefundCoinSet(bytes32 indexed coin);
+    event FiatCurrencySet(bytes32 indexed currency);
 
     /// @notice Constructor initializes token manager
     /// @dev In addition to the above, the constructor is also assigning USDC as default refund coin
@@ -68,6 +72,35 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         decimalsDiff = MoTokenManager(_tokenManager).getDecimalsDiff(
             assignedRefundCoin
         );
+    }
+
+    /// @notice Access modifier to restrict access only to RWA manager addresses
+
+    modifier onlyRWAManager() {
+        AccessControlManager acm = AccessControlManager(
+            accessControlManagerAddress
+        );
+        require(acm.isRWAManager(msg.sender), "NR");
+        _;
+    }
+
+    /// @notice Access modifier to restrict access only to whitelisted addresses
+
+    modifier onlywhitelisted() {
+        AccessControlManager acm = AccessControlManager(
+            accessControlManagerAddress
+        );
+        require(acm.isWhiteListed(msg.sender), "NW");
+        _;
+    }
+
+    /// @notice Setter for accessControlManagerAddress
+    /// @param _accessControlManagerAddress Set accessControlManagerAddress to this address
+
+    function setAccessControlManagerAddress(
+        address _accessControlManagerAddress
+    ) external onlyOwner {
+        accessControlManagerAddress = _accessControlManagerAddress;
     }
 
     /// @notice Setter for assigned refund coin
@@ -100,21 +133,8 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         emit FiatCurrencySet(fiatCurrency);
     }
 
-    /// @notice Allows adding an address with RWA Manager role
-    /// @param _account address to be granted RWA Manager role
 
-    function addRWAManager(address _account) external onlyOwner {
-        _addRWAManager(_account);
-    }
-
-    /// @notice Allows removing an address from RWA Manager role
-    /// @param _account address from which RWA Manager role is to be removed
-
-    function removeRWAManager(address _account) external onlyOwner {
-        _removeRWAManager(_account);
-    }
-
-    /// @notice Creates a new batch\
+    /// @notice Creates a new batch
 
     function createBatch() external onlyRWAManager {
         allBatches.push();
@@ -136,9 +156,10 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
     /// @notice Create a new redeem request in the current batch
     /// @param _tokens The amount of tokens to redeem
 
-    function createRedeemRequest(uint256 _tokens) external {
+    function createRedeemRequest(uint256 _tokens) external onlywhitelisted {
         require(
-            _tokens > 0 &&
+            batchTail > batchHead &&
+                _tokens > 0 &&
                 allBatches[batchTail - 1]
                     .requests[msg.sender]
                     .requestTokensPending ==
@@ -147,7 +168,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         );
 
         MoTokenManager manager = MoTokenManager(tokenManager);
-        MoToken token = MoToken(manager.getTokenAddress());
+        MoToken token = MoToken(manager.token());
         require(token.balanceOf(msg.sender) >= _tokens, "NT");
 
         if (allBatches[batchTail - 1].requests[msg.sender].requestTokens == 0) {
@@ -180,7 +201,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         );
 
         MoTokenManager manager = MoTokenManager(tokenManager);
-        MoToken token = MoToken(manager.getTokenAddress());
+        MoToken token = MoToken(manager.token());
         require(
             token.transferTokens(
                 msg.sender,
@@ -199,7 +220,8 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
 
     /// @notice Fulfill the redeem requests in the given batch
     /// @param _id Batch Id
-    /// @param _amount The Fiat amount which is used to issue refunds
+    /// @param _amount The Fiat amount which is used to issue refunds,
+    /// should be shifted by 18 decimals (same as mo token)
 
     function fulfillBatch(uint256 _id, uint256 _amount)
         external
@@ -212,10 +234,10 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
         require(_id >= batchHead, "BD");
 
         MoTokenManager manager = MoTokenManager(tokenManager);
-        MoToken token = MoToken(manager.getTokenAddress());
+        MoToken token = MoToken(manager.token());
 
         uint256 nav = uint256(manager.getNAV());
-        uint256 refundTokens = (_amount * 10**(6 + decimalsDiff)) / nav;
+        uint256 refundTokens = (_amount * 10**6) / nav;
 
         if (refundTokens > allBatches[_id].batchTokensPending)
             refundTokens = allBatches[_id].batchTokensPending;
@@ -226,10 +248,12 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
 
         //ensure sufficient balance
         require(
-            ((_amount * 10**decimalsVal) / stableToFiatConvRate) <=
+            ((_amount * 10**decimalsVal) /
+                10**decimalsDiff /
+                stableToFiatConvRate) <=
                 manager.balanceOf(
                     assignedRefundCoin,
-                    manager.getTokenAddress()
+                    manager.token()
                 ),
             "NF"
         );
@@ -242,10 +266,13 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
             ) {
                 address user = allBatches[_id].userList[itr];
 
+                RedemptionRequest storage request = allBatches[_id].requests[
+                    user
+                ];
+
                 // refund amount in fiat
-                uint256 refundAmount = ((allBatches[_id]
-                    .requests[user]
-                    .requestTokensPending * nav) / 10**6) / 10**(decimalsDiff);
+                uint256 refundAmount = ((request.requestTokensPending * nav) /
+                    10**6) / 10**(decimalsDiff);
 
                 // refund amount in stable coins
                 refundAmount =
@@ -253,10 +280,10 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
                     stableToFiatConvRate;
                 require(_transferStableCoins(user, refundAmount), "TSOF");
                 token.burn(
-                    allBatches[_id].requests[user].requestTokensPending,
-                    manager.getTokenAddress()
+                    request.requestTokensPending,
+                    manager.token()
                 );
-                allBatches[_id].requests[user].requestTokensPending = 0;
+                request.requestTokensPending = 0;
             }
 
             allBatches[_id].batchTokensPending = 0;
@@ -283,7 +310,7 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
                     stableToFiatConvRate;
 
                 require(_transferStableCoins(user, refundAmount), "TSOF");
-                token.burn(userRefund, manager.getTokenAddress());
+                token.burn(userRefund, manager.token());
                 allBatches[_id].requests[user].requestTokensPending =
                     allBatches[_id].requests[user].requestTokensPending -
                     userRefund;
@@ -293,18 +320,6 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
                 refundTokens;
             emit BatchFulfilled(_id, refundTokens, false);
         }
-    }
-
-    /// @notice Getter for batch range details
-    /// @return head Index of the earliest unfulfilled batch
-    /// @return tail Index beyond the latest batch
-
-    function getOpenBatchRange()
-        external
-        view
-        returns (uint256 head, uint256 tail)
-    {
-        return (batchHead, batchTail);
     }
 
     /// @notice Getter for all the users who have raised redemption request
@@ -373,15 +388,15 @@ contract RedemptionBatchProcessor is Ownable, RWAManager {
             _amount <=
                 manager.balanceOf(
                     assignedRefundCoin,
-                    manager.getTokenAddress()
+                    manager.token()
                 ),
             "NF"
         );
 
-        MoToken token = MoToken(manager.getTokenAddress());
+        MoToken token = MoToken(manager.token());
         return (
             token.transferStableCoins(
-                manager.getContractAddress(assignedRefundCoin),
+                manager.contractAddressOf(assignedRefundCoin),
                 _to,
                 _amount
             )

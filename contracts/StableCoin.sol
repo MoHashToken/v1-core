@@ -9,30 +9,30 @@ import "./CurrencyOracle.sol";
 
 abstract contract StableCoin {
     /// @dev Mapping points to the address where the stablecoin contract is deployed on chain
-    mapping(bytes32 => address) internal contractAddressOf;
+    mapping(bytes32 => address) public contractAddressOf;
 
     /// @dev Mapping points to the pipe address where the stablecoins to be converted to fiat are transferred
-    mapping(bytes32 => address) internal pipeAddressOf;
+    mapping(bytes32 => address) public pipeAddressOf;
 
     /// @dev Array of all stablecoins added to the contract
-    bytes32[] internal stableCoinsAssociated;
+    bytes32[] public stableCoinsAssociated;
 
     /// @dev Address of the associated MoToken
-    address internal token;
+    address public token;
 
     /// @dev OraclePriceExchange Address contract associated with the stable coin
-    address internal currencyOracleAddress;
+    address public currencyOracleAddress;
 
     /// @dev fiatCurrency associated with tokens
-    bytes32 internal fiatCurrency = "USD";
+    bytes32 public fiatCurrency = "USD";
 
     event CurrencyOracleAddressSet(address indexed currencyOracleAddress);
     event StableCoinAdded(
-        bytes32 indexed _symbol,
-        address indexed _contractAddress,
-        address indexed _pipeAddress
+        bytes32 indexed symbol,
+        address indexed contractAddress,
+        address indexed pipeAddress
     );
-    event StableCoinDeleted(bytes32 indexed _symbol);
+    event StableCoinDeleted(bytes32 indexed symbol);
 
     /// @notice Adds a new stablecoin
     /// @dev There can be no duplicate entries for same stablecoin symbol
@@ -72,33 +72,6 @@ abstract contract StableCoin {
             }
         }
         emit StableCoinDeleted(_symbol);
-    }
-
-    /// @notice Getter for Stablecoin contract address
-    /// @param _symbol Stablecoin symbol
-    /// @return address Contract address of the stablecoin on chain
-
-    function getContractAddress(bytes32 _symbol) public view returns (address) {
-        return contractAddressOf[_symbol];
-    }
-
-    /// @notice Getter for Stablecoin pipe address
-    /// @param _symbol Stablecoin symbol
-    /// @return address Pipe address associated with the stablecoin
-
-    function getPipeAddress(bytes32 _symbol) public view returns (address) {
-        return pipeAddressOf[_symbol];
-    }
-
-    /// @notice Getter for Stable coins associated
-    /// @return bytes32[] Stable coins accepted by the token
-
-    function getStableCoinsAssociated()
-        external
-        view
-        returns (bytes32[] memory)
-    {
-        return stableCoinsAssociated;
     }
 
     /// @notice Get balance of the stablecoins in the wallet address

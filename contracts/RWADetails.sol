@@ -2,14 +2,14 @@
 pragma solidity 0.8.2;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./access/RWAManager.sol";
+import "./access/AccessControlManager.sol";
 import "./CurrencyOracle.sol";
 
 /// @title Real World Asset Details
 /// @notice This contract stores the real world assets for the protocol
 /// @dev Extending Ownable and RWAManager for role implementation
 
-contract RWADetails is Ownable, RWAManager {
+contract RWADetails is Ownable {
     event RWAUnitCreated(uint256 indexed rWAUnitId, string name);
     event RWAUnitAddedUnitsForTokenId(
         uint256 indexed rWAUnitId,
@@ -62,23 +62,27 @@ contract RWADetails is Ownable, RWAManager {
     uint256 public rWAUnitId;
 
     /// @dev mapping between the id and the struct
-    mapping(uint256 => RWAUnit) private rWAUnits;
+    mapping(uint256 => RWAUnit) public rWAUnits;
 
     /// @dev Currency Oracle Address contract associated with RWA unit
-    address private currencyOracleAddress;
+    address public currencyOracleAddress;
 
-    /// @notice Allows adding an address with RWA Manager role
-    /// @param _account address to be granted RWA Manager role
+    /// @dev Implements RWA manager and whitelist access
+    address public accessControlManagerAddress;
 
-    function addRWAManager(address _account) external onlyOwner {
-        _addRWAManager(_account);
+    /// @dev Access modifier to restrict access only to RWA manager addresses
+
+    modifier onlyRWAManager() {
+        AccessControlManager acm = AccessControlManager(accessControlManagerAddress);
+        require(acm.isRWAManager(msg.sender), "NR" );
+        _;
     }
 
-    /// @notice Allows removing an address from RWA Manager role
-    /// @param _account address from which RWA Manager role is to be removed
+    /// @notice Setter for accessControlManagerAddress
+    /// @param _accessControlManagerAddress Set accessControlManagerAddress to this address
 
-    function removeRWAManager(address _account) external onlyOwner {
-        _removeRWAManager(_account);
+    function setAccessControlManagerAddress(address _accessControlManagerAddress) external onlyOwner {
+        accessControlManagerAddress = _accessControlManagerAddress;
     }
 
     /** @notice function createRWAUnit allows creation of a new Real World Asset type (RWA unit)
@@ -237,13 +241,6 @@ contract RWADetails is Ownable, RWAManager {
         emit CurrencyOracleAddressSet(currencyOracleAddress);
     }
 
-    /// @notice Allows getting currencyOracleAddress
-    /// @return address returns currencyOracleAddress
-
-    function getCurrencyOracleAddress() public view returns (address) {
-        return currencyOracleAddress;
-    }
-
     /** @notice Function returns the value of RWA units held by a given MoH token id. This is calculated as number of RWA units
      *  against the MoH token multiplied by unit price of an RWA token.
      */
@@ -257,11 +254,11 @@ contract RWADetails is Ownable, RWAManager {
         bytes32 _inCurrency,
         uint32 _date
     ) external view returns (uint128 assetValue) {
-        CurrencyOracle currencyOrace = CurrencyOracle(currencyOracleAddress);
+        CurrencyOracle currencyOracle = CurrencyOracle(currencyOracleAddress);
         for (uint256 i = 0; i < rWAUnitId; i++) {
             RWAUnit storage rWAUnit = rWAUnits[i];
             require(rWAUnit.priceUpdateDate == _date, "ECC3");
-            (uint64 convRate, uint8 decimalsVal) = currencyOrace
+            (uint64 convRate, uint8 decimalsVal) = currencyOracle
                 .getFeedLatestPriceAndDecimals(
                     rWAUnit.fiatCurrency,
                     _inCurrency
